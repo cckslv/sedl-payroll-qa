@@ -29,7 +29,11 @@ SCHEMA_NOTE = """
   calc_reference  官方 Excel 算出的结果：month_sick_days 当月病假天数、
                   prev_total_days 考勤月前累计、total_sick_days 累计总天数、
                   deduction 病假扣款、net_pay 实发工资
-  policy_params   政策参数：min_wage 最低工资、rate_low 0.25、rate_high 0.5 等
+  policy_params   政策参数（name 为英文键名，value 为数值）：
+                  min_wage=最低工资、workdays_per_month=月计薪天数、
+                  full_month_sick_threshold=累计病假门槛、long_sick_days=长病假天数、
+                  paid_sick_days=免扣天数、rate_low=25% 比例、rate_high=50% 比例、
+                  rate_full=100% 比例
 
 规则：
   1. 只写 SQLite 的 SELECT 语句，不要 INSERT/UPDATE/DELETE，不要建表。
@@ -37,7 +41,12 @@ SCHEMA_NOTE = """
   3. 涉及扣款/实发等结果数字，直接查 calc_reference，不要自己算。
   4. 需要人名时 JOIN employee 取 name。
   5. 结果默认返回全部匹配行，不要加 LIMIT（系统会自动补）。
-  6. 只有当缺少**关键**信息、无法确定查询范围时才返回 `CLARIFY: <问题>`
+  6. 查 policy_params 时 **必须用上表里的英文键名**（如 min_wage），
+     不要用中文名称当 name 去匹配，表里存的是英文键。
+  7. 如果同一取值在结果里会重复出现（例如按月统一的应出勤小时数），可用 SELECT DISTINCT 去重；
+     但**去重必须保留问题所问的列**：问"每个人"就要返回姓名 name，不要拿 emp_id 顶上，
+     也不要因为去重把 JOIN employee 省掉。
+  8. 只有当缺少**关键**信息、无法确定查询范围时才返回 `CLARIFY: <问题>`
      （例如没说人名且问的是个人数据、没说月份且数据跨月）。
      能合理推断的不要反问：全表只有一个员工/一种取值时，直接查。
      问"合计/平均/几个人"这类全局问题时，不要反问是哪个人。
