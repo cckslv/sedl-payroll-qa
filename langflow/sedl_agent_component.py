@@ -9,8 +9,9 @@ import re
 import sqlite3
 import urllib.request
 
-DB_PATH = r"D:\AIProjects\ai-agent\sedl\data\sedl.db"
-ENV_FILE = r"D:\AIProjects\ai-agent\sedl\.env"
+REPO_DIR = os.environ.get("SEDL_REPO") or r"D:\AIProjects\ai-agent\sedl"
+DB_PATH = os.environ.get("SEDL_DB_PATH") or os.path.join(REPO_DIR, "data", "sedl.db")
+ENV_FILE = os.path.join(REPO_DIR, ".env")
 API_URL = "https://api.deepseek.com/chat/completions"
 MODEL = "deepseek-chat"
 
@@ -103,14 +104,20 @@ class SEDLAgent(Component):
             "不要解释，不要输出 SQL 以外内容。\n\n"
             "表结构：\n%s\n\n"
             "口径：calc_reference 是官方 Excel 算出的结果，含 deduction 病假扣款、net_pay 实发；"
-            "employee 存姓名；period 形如 '2026-04'。\n\n"
+            "employee 存姓名；period 形如 '2026-04'。\n"
+            "policy_params 的 name 是英文键：min_wage 最低工资、workdays_per_month 月计薪天数、"
+            "full_month_sick_threshold 累计病假门槛、long_sick_days 长病假天数、"
+            "paid_sick_days 免扣天数、rate_low 0.25、rate_high 0.5、rate_full 1.0。\n\n"
             "规则：\n"
             "1. 只写 SELECT，只用上面这些表。\n"
             "2. 扣款/实发等结果数字直接查 calc_reference，不要自己算。\n"
             "3. 只 SELECT 问题需要的列，不要 SELECT *。\n"
             "4. 不要加 LIMIT。\n"
             "5. 问合计/平均/一共几个人/所有人这类全局问题时，不要反问是哪个人，直接查全表。\n"
-            "6. 只有当缺少关键信息、确实无法确定查询范围时才返回：CLARIFY: <要问的问题>。\n\n"
+            "6. 查 policy_params 时必须用上面的英文键名，不要用中文名称当 name 匹配。\n"
+            "7. 同一取值会重复出现时（如按月统一的应出勤小时数）可用 SELECT DISTINCT，"
+            "但去重必须保留问题所问的列：问\"每个人\"就返回姓名 name，不要用 emp_id 顶替。\n"
+            "8. 只有当缺少关键信息、确实无法确定查询范围时才返回：CLARIFY: <要问的问题>。\n\n"
             "示例：\n"
             "问：张三 4 月扣了多少\n"
             "答：SELECT c.deduction FROM calc_reference c JOIN employee e "
@@ -189,6 +196,11 @@ class SEDLAgent(Component):
         if not q:
             return Message(text="请输入问题，例如：张三 4 月病假扣了多少？")
 
+        # 优先复用仓库里的 core（同一份提示词/护栏/归因），避免两份实现漂移
+        result = self._via_core(q)
+        if result is not None:
+            return Message(text=result)
+
         if WRITE_INTENT.search(q):
             return Message(
                 text="本系统只支持只读查询，不会修改、删除或新增任何数据。\n"
@@ -221,3 +233,23 @@ class SEDLAgent(Component):
         body = "\n".join(" | ".join("" if v is None else str(v) for v in r) for r in rows[:20])
         more = "" if len(rows) <= 20 else "\n... 共 %d 行，只显示前 20 行" % len(rows)
         return Message(text="%s\n%s\n%s%s\n\nSQL: %s" % (head, "-" * 40, body, more, sql))
+
+    # ---------- 复用仓库 core ----------
+    def _via_core(self, question: str):
+        """能导入仓库 core 就交给它处理（提示词/护栏/归因只有一份实现）。"""
+        try:
+            import sys
+            if REPO_DIR not in sys.path:
+                sys.path.insert(0, REPO_DIR)
+            from core.nl2sql import ask as core_ask
+            from core.llm import chat as core_chat
+
+            if not os.path.exists(DB_PATH):
+                return "数据库不存在：%s\n（可用环境变量 SEDL_DB_PATH 指定）" % DB_PATH
+
+            a = core_ask(DB_PATH, question, core_chat)
+            if a.sql:
+                return "%s\n\nSQL: %s" % (a.text, a.sql)
+            return a.text
+        except Exception:
+            return None   # 导入失败则回落到组件内置实现

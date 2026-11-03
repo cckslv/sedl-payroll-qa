@@ -145,30 +145,46 @@ def connect(db_path: str, with_authorizer: bool = False,
     return con
 
 
+def _strip_trailing(sql: str) -> str:
+    """去掉尾部空白、分号与注释，避免拼 LIMIT 时变成多语句。"""
+    s = sql.strip()
+    while True:
+        before = s
+        s = s.rstrip()
+        if s.endswith(";"):
+            s = s[:-1]
+            continue
+        s = re.sub(r"--[^\n]*$", "", s).rstrip()
+        s = re.sub(r"/\*.*?\*/$", "", s, flags=re.S).rstrip()
+        if s == before:
+            return s
+
+
 # ---------------- 对外 API ----------------
 def run_query(db_path: str, sql: str, *,
               limit: int = DEFAULT_LIMIT,
               timeout_sec: float = DEFAULT_TIMEOUT_SEC) -> QueryResult:
-    """校验并执行一条只读查询。"""
+    """校验并执行一条只读查询。
+
+    统一包一层子查询限流：`SELECT * FROM (<sql>) LIMIT n+1`。
+    这样无论模型写不写 LIMIT、写多大，结果都不会超上限；
+    truncated 表示「确实还有更多行」，而不是「我加了个 LIMIT」。
+    """
     _ensure_single_statement(sql)
     _ensure_prefix(sql)
 
-    executed = sql.strip().rstrip(";").strip()
-    truncated = False
-    if not _has_limit(executed):
-        executed = f"{executed}\nLIMIT {limit}"
-        truncated = True
+    inner = _strip_trailing(sql)
+    executed = f"SELECT * FROM (\n{inner}\n) LIMIT {limit + 1}"
 
     seen: list[str] = []
     con = connect(db_path, with_authorizer=True, seen_tables=seen)
     try:
-        # 超时保护：每 1000 条虚拟机指令回调一次
         deadline = [time.monotonic() + timeout_sec]
         con.set_progress_handler(
             lambda: 1 if time.monotonic() > deadline[0] else 0, 1000)
         try:
             cur = con.execute(executed)
-            rows = [tuple(r) for r in cur.fetchall()]
+            fetched = cur.fetchmany(limit + 1)
             columns = [d[0] for d in (cur.description or [])]
         except sqlite3.OperationalError as e:
             msg = str(e).lower()
@@ -176,7 +192,11 @@ def run_query(db_path: str, sql: str, *,
                 raise UnsafeQueryError(f"查询超时（>{timeout_sec}s）") from e
             if "no such table" in msg or "no such column" in msg:
                 raise UnsafeQueryError(f"不存在的表或列: {e}") from e
-            raise
+            if "not authorized" in msg:
+                raise UnsafeQueryError("语句被拒绝（越权访问）") from e
+            raise UnsafeQueryError(f"SQL 执行失败: {e}") from e
+        except sqlite3.Warning as e:   # 多语句等；Warning 不是 Error 子类
+            raise UnsafeQueryError(f"只允许单条语句: {e}") from e
         except sqlite3.DatabaseError as e:
             msg = str(e).lower()
             if "not authorized" in msg:
@@ -187,6 +207,8 @@ def run_query(db_path: str, sql: str, *,
         finally:
             con.set_progress_handler(None, 0)
 
+        truncated = len(fetched) > limit
+        rows = [tuple(r) for r in fetched[:limit]]
         tables = [t for t in seen if not t.startswith("DENY:")]
         return QueryResult(columns=columns, rows=rows, truncated=truncated,
                            executed_sql=executed, tables_used=tables)

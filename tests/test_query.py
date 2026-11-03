@@ -34,11 +34,32 @@ def test_with_cte():
     assert r.rows[0][0] == 8
 
 
-def test_auto_limit_appended():
+def test_limit_wrapping_applied():
+    """结果集统一包一层子查询限流；32 行未超上限，truncated 应为 False"""
     r = run_query(DB, "SELECT * FROM attendance")
     assert "LIMIT" in r.executed_sql.upper()
-    assert r.truncated is True
+    assert r.truncated is False
     assert len(r.rows) == 32
+
+
+def test_truncated_reflects_real_overflow():
+    """结果真的超过上限时才标 truncated，且行数不超过上限"""
+    r = run_query(DB, "SELECT e.name, a.period FROM employee e, attendance a", limit=10)
+    assert len(r.rows) == 10
+    assert r.truncated is True
+
+
+def test_model_limit_cannot_exceed_cap():
+    """模型自己写 LIMIT 100000 也不能突破上限"""
+    r = run_query(DB, "SELECT * FROM attendance LIMIT 100000", limit=10)
+    assert len(r.rows) == 10
+    assert r.truncated is True
+
+
+def test_trailing_semicolon_with_comment():
+    """结尾分号后跟注释，不能拼成多语句"""
+    r = run_query(DB, "SELECT COUNT(*) FROM employee;  -- 注释")
+    assert r.rows[0][0] == 8
 
 
 def test_literal_keyword_not_blocked():

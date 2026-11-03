@@ -3,7 +3,7 @@
 > 用自然语言查询薪资数据：**模型只写 SQL，数字由数据库产出**。
 > 面向「结构化数据不该用向量检索」这一判断的完整工程实现：三层护栏、确定性计算、可复现评测。
 
-[![tests](https://img.shields.io/badge/tests-48%20passed-brightgreen)]()
+[![tests](https://img.shields.io/badge/tests-69%20passed-brightgreen)]()
 [![eval](https://img.shields.io/badge/eval-90%25%20strict%20%2F%2095%25%20lenient-blue)]()
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 
@@ -65,8 +65,8 @@
 | 扣款计算正确性 | **8/8 与官方 Excel 完全一致** | `test_against_official_excel_reference` |
 | 执行准确率（严格） | **100%**（20/20） | `eval/report.md`，单次运行 |
 | 执行准确率（宽松） | **100%**（20/20） | 容忍多给列 |
-| 单题延迟 | 1.3 s ～ 6 s | 20 题 25 s ~ 117 s，随网络波动 |
-| 测试 | **48 项通过** | 11 扣款 + 21 护栏 + 16 问答 |
+| 单题延迟 | 0.7 s ～ 6 s | 随网络波动，本地逻辑 < 10 ms |
+| 测试 | **69 项通过** | 11 扣款 + 25 护栏 + 16 问答 + 9 归因 + 8 抽取 |
 
 评测口径是**执行准确率**：跑 gold SQL 和模型 SQL，把结果集规范化后比对。
 不比较 SQL 文本——别名、JOIN 顺序一变文本就不同，但答案是同一个。
@@ -85,7 +85,7 @@ cd sedl-payroll-qa
 pip install pytest
 
 python scripts/seed_demo.py     # 生成合成演示库（无需任何外部文件）
-python -m pytest tests -q       # 48 项测试
+python -m pytest tests -q       # 69 项测试
 ```
 
 提问（需要 `DEEPSEEK_API_KEY`，或写在 `.env` 里）：
@@ -111,7 +111,8 @@ python eval/run_eval.py
 core/
   payroll.py    病假扣款五分支公式（纯函数，参数外置）
   query.py      只读查询 + 三层护栏 + schema 描述
-  nl2sql.py     提示词组装、SQL 抽取、澄清判定、结果表述
+  nl2sql.py     提示词组装、SQL 抽取、澄清判定、写意图拦截、结果表述
+  explain.py    分析型问题（为什么/差多少）的确定性归因
   llm.py        DeepSeek 调用（密钥从环境变量/.env/注册表读取）
 scripts/
   seed_demo.py  生成合成演示数据
@@ -120,7 +121,7 @@ eval/
   questions.jsonl  20 题评测集（gold SQL）
   run_eval.py      执行准确率
   CHANGELOG.md     评测集变更记录
-tests/           48 项单元测试
+tests/           69 项单元测试
 langflow/        可直接粘贴进 Langflow 的自定义组件
 docs/            架构与重构记录
 ```
@@ -143,3 +144,23 @@ Python 3.10+ · SQLite（stdlib）· DeepSeek API · Langflow 1.9（可选）· 
 ## License
 
 MIT
+
+---
+
+## 分析型问题（为什么差这么多）
+
+不只会查数，还能**确定性归因**——"为什么赵六比刘一高这么多"这类问题不调模型：
+
+```
+2026-04 实发工资最高的是 赵六，17,501.00 元；最低的是 刘一，2,697.00 元；相差 14,804.00 元。
+
+【赵六 vs 刘一】
+- 基本工资：20,000.00 vs 3,000.00，相差 17,000.00 元。
+- 病假扣款：2,499.00 元（A 分支） vs 303.00 元（C 分支），相差 2,196.00 元。扣款把差距缩小了 2,196.00 元。
+  · 赵六：日薪 952.38 元，当月病假 3 天，考勤月前累计 37 天，累计 40 天 → A 分支
+  · 刘一：日薪 142.86 元，当月病假 14 天，考勤月前累计 21 天，累计 35 天 → C 分支
+  ＝ 差距 14,804.00 元 = 基本工资差 17,000.00 元 − 扣款差 2,196.00 元
+```
+
+关键点：**归因不是模型写的**。分支由 `core/payroll.py` 反推，金额全部来自数据库，
+每句话都能用返回的 SQL 复核。识别不出度量口径时（如问"天数差多少"）会明确说不支持，而不是硬套实发。

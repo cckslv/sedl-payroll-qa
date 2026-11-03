@@ -61,6 +61,28 @@ SYSTEM_PROMPT = (
 SQL_FENCE = re.compile(r"```(?:sql)?\s*(.+?)```", re.I | re.S)
 CLARIFY = re.compile(r"^\s*CLARIFY[:：]\s*(.+)$", re.I | re.M)
 
+# 写意图：动词 + 数据对象，双序匹配（"把员工表删了" 与 "删掉员工表" 都要命中）。
+# 放在调模型之前拦：模型会把危险请求当歧义来反问，规则不会。
+WRITE_INTENT = re.compile(
+    r"(删\s*除|删\s*掉|删了|删|清\s*空|清\s*除|清掉|清|改\s*成|改掉|修\s*改|更\s*新|插\s*入|新\s*增|"
+    r"写\s*入|覆\s*盖|调\s*到|设\s*成|设\s*置|移\s*除|重\s*置|去掉|录入|导入|"
+    r"\bdrop\b|\bdelete\b|\bupdate\b|\binsert\b|\btruncate\b|\balter\b)"
+    r"[^。？！\n]{0,12}?"
+    r"(表|数据|记录|几行|库|字段|参数|工资|薪资|实发|底薪|员工|"
+    r"employee|attendance|salary_month|calc_reference|policy_params|最低工资)"
+    r"|"
+    r"(表|数据|记录|库|字段|参数|工资|薪资|实发|底薪|员工|"
+    r"employee|attendance|salary_month|calc_reference|policy_params)"
+    r"[^。？！\n]{0,8}?"
+    r"(删|清|清空|清除|清掉|改成|改掉|修改|覆盖|调到|设成|移除|重置|\bdrop\b|\bdelete\b|\bupdate\b)",
+    re.I,
+)
+
+REFUSE_TEXT = (
+    "本系统只支持只读查询，不会修改、删除或新增任何数据。\n"
+    "如果你想查某人的扣款或实发工资，请直接问，例如：张三 4 月扣了多少？"
+)
+
 
 @dataclass
 class Answer:
@@ -88,29 +110,66 @@ def build_prompt(db_path: str, question: str, examples: Iterable[tuple[str, str]
     return "\n".join(parts)
 
 
+FENCE = re.compile(r"```[ \t]*([A-Za-z0-9_+-]*)[ \t]*\r?\n(.*?)```", re.S)
+SQL_TAGS = {"", "sql", "sqlite", "sqlite3", "sqlite-sql"}
+CLARIFY_ANY = re.compile(r"CLARIFY[:：]\s*(.+)", re.I)
+
+
+def _strip_sql_comments(text: str) -> str:
+    text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
+    return re.sub(r"--[^\n]*", " ", text)
+
+
+def _first_statement(text: str) -> str | None:
+    """按 sqlite3.complete_statement 切出第一条完整语句。"""
+    import sqlite3
+    buf = []
+    for line in text.splitlines():
+        buf.append(line)
+        candidate = "\n".join(buf).strip()
+        if candidate and sqlite3.complete_statement(candidate + ";"):
+            return candidate.rstrip(";").strip()
+    candidate = "\n".join(buf).strip().rstrip(";").strip()
+    return candidate or None
+
+
 def extract_sql(model_output: str) -> str:
-    """从模型输出里取出 SQL；若模型选择澄清则抛 ClarifyNeeded。"""
-    m = CLARIFY.search(model_output or "")
+    """从模型输出里取出 SQL；若模型只给了澄清则抛 ClarifyNeeded。
+
+    规则（都是踩过的坑）：
+      · 只认 sql/sqlite/sqlite3 或无标签的代码块，图文块（```text）跳过
+      · 多个候选时取**最后一个** —— 模型常在推理后给出最终 SQL
+      · 先抽 SQL 再找 CLARIFY，避免「SQL + 澄清」混合输出丢掉可执行语句
+    """
+    text = model_output or ""
+
+    candidates = []
+    for tag, body in FENCE.findall(text):
+        if tag.lower() in SQL_TAGS:
+            candidates.append(body)
+    if not candidates:
+        candidates = [text]
+
+    parsed = []
+    for c in candidates:
+        c = _strip_sql_comments(c)
+        start = re.search(r"\b(select|with)\b", c, re.I)
+        if not start:
+            continue
+        s = _first_statement(c[start.start():])
+        if not s:
+            continue
+        s = re.sub(r"^\s*sql\s*[:：]\s*", "", s, flags=re.I).strip()
+        if s.lower().startswith(("select", "with")):
+            parsed.append(s.rstrip(";").strip())
+
+    if parsed:
+        return parsed[-1]
+
+    m = CLARIFY_ANY.search(text)
     if m:
         raise ClarifyNeeded(m.group(1).strip())
-
-    text = model_output or ""
-    fences = SQL_FENCE.findall(text)
-    if fences:
-        text = fences[0]
-    else:
-        idx = re.search(r"\b(select|with)\b", text, re.I)
-        if not idx:
-            raise ValueError("模型输出里没有 SQL")
-        text = text[idx.start():]
-    sql = text.strip().strip("`").strip()
-    sql = re.sub(r"^sql\s*:?\s*", "", sql, flags=re.I).strip()
-    sql = sql.rstrip(";").strip()
-    if not sql:
-        raise ValueError("模型没有给出 SQL")
-    if not sql.lower().startswith(("select", "with")):
-        raise ValueError(f"抽取到的内容不是查询语句: {sql[:40]!r}")
-    return sql
+    raise ValueError("模型输出里没有可执行的 SQL")
 
 
 class ClarifyNeeded(Exception):
@@ -132,6 +191,17 @@ def ask(db_path: str, question: str,
         llm: Callable[[str], str],
         examples: Iterable[tuple[str, str]] = ()) -> Answer:
     """一次完整问答。llm 是「提示词 -> 文本」的可调用对象，便于替换与测试。"""
+    # 写意图在调模型之前就拦掉
+    if WRITE_INTENT.search(question or ""):
+        return Answer(question=question, sql=None, result=None, text=REFUSE_TEXT,
+                      error="只读系统，拒绝写操作")
+
+    # 分析型问题（为什么 / 原因 / 差多少）走确定性归因，不让模型生成数字
+    from .explain import explain, is_analysis_question
+    if is_analysis_question(question):
+        text, sql = explain(db_path, question)
+        return Answer(question=question, sql=sql, result=None, text=text)
+
     prompt = build_prompt(db_path, question, examples)
     try:
         raw = llm(prompt)

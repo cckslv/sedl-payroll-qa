@@ -124,3 +124,50 @@ def test_compose_with_llm_uses_table():
     a = ask(DB, "总扣款", fake_llm(sql))
     out = compose_answer(a, llm=fake_llm("所有员工病假扣款合计 14070 元。"))
     assert "14070" in out
+
+# ---------- 写意图拦截（规则层，调模型之前）----------
+@pytest.mark.parametrize("q", [
+    "帮我把员工表删了",
+    "把张三的工资改成 99999",
+    "删库跑路",
+    "把最低工资参数调到 3000",
+    "把数据全清了",
+    "帮我删了张三的记录",
+])
+def test_write_intent_blocked_without_llm(q):
+    def boom(_):
+        raise AssertionError("写意图不应调用模型")
+    a = ask(DB, q, boom)
+    assert a.error is not None
+    assert "只读" in a.text
+    assert a.result is None
+
+
+def test_normal_question_not_blocked():
+    """正常的问句不能被写意图规则误杀"""
+    from core.nl2sql import WRITE_INTENT
+    assert not WRITE_INTENT.search("张三扣了多少")
+    assert not WRITE_INTENT.search("谁扣款最多")
+
+
+# ---------- 抽取鲁棒性 ----------
+def test_extract_prefers_last_fence():
+    """多个代码块时取最后一个（模型常在推理后给出最终 SQL）"""
+    out = "```sql\nSELECT 1\n```\n再想想\n```sql\nSELECT name FROM employee\n```"
+    assert extract_sql(out) == "SELECT name FROM employee"
+
+
+def test_extract_skips_text_fence():
+    out = "```text\n先查员工表\n```\n```sql\nSELECT COUNT(*) FROM employee\n```"
+    assert extract_sql(out) == "SELECT COUNT(*) FROM employee"
+
+
+def test_extract_handles_leading_comment():
+    out = "-- 查询员工\nSELECT name FROM employee"
+    assert extract_sql(out).startswith("SELECT")
+
+
+def test_extract_sql_plus_clarify_keeps_sql():
+    """SQL 与 CLARIFY 同时出现时，优先执行 SQL"""
+    out = "```sql\nSELECT name FROM employee\n```\nCLARIFY: 是否要按月份分组？"
+    assert extract_sql(out).startswith("SELECT")
