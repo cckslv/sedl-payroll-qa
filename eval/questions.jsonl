@@ -1,0 +1,20 @@
+{"id": "q01", "kind": "单值", "question": "张三的4月病假扣款是多少钱？", "gold_sql": "SELECT c.deduction FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE e.name='张三' AND c.period='2026-04'"}
+{"id": "q02", "kind": "单值", "question": "刘一4月的实发工资是多少？", "gold_sql": "SELECT c.net_pay FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE e.name='刘一' AND c.period='2026-04'"}
+{"id": "q03", "kind": "单值", "question": "陈二4月的基本工资是多少？", "gold_sql": "SELECT s.basic_salary FROM salary_month s JOIN employee e ON e.emp_id=s.emp_id WHERE e.name='陈二' AND s.period='2026-04'"}
+{"id": "q04", "kind": "聚合", "question": "8个人4月的病假扣款合计是多少？", "gold_sql": "SELECT SUM(deduction) FROM calc_reference WHERE period='2026-04'"}
+{"id": "q05", "kind": "聚合", "question": "4月所有人的实发工资加起来是多少？", "gold_sql": "SELECT SUM(net_pay) FROM calc_reference WHERE period='2026-04'"}
+{"id": "q06", "kind": "聚合", "question": "4月的平均基本工资是多少？", "gold_sql": "SELECT AVG(basic_salary) FROM salary_month WHERE period='2026-04'"}
+{"id": "q07", "kind": "排序", "question": "谁4月病假扣款最多？叫什么名字？", "gold_sql": "SELECT e.name FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE c.period='2026-04' ORDER BY c.deduction DESC LIMIT 1"}
+{"id": "q08", "kind": "排序", "question": "扣款最多的前三名是谁？", "gold_sql": "SELECT e.name FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE c.period='2026-04' ORDER BY c.deduction DESC LIMIT 3"}
+{"id": "q09", "kind": "排序", "question": "按扣款从低到高列出所有人的姓名", "gold_sql": "SELECT e.name FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE c.period='2026-04' ORDER BY c.deduction ASC"}
+{"id": "q10", "kind": "过滤", "question": "4月实发工资低于5000的有哪些人？", "gold_sql": "SELECT e.name FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE c.period='2026-04' AND c.net_pay < 5000 ORDER BY e.name"}
+{"id": "q11", "kind": "过滤", "question": "4月病假天数超过20天的有谁？", "gold_sql": "SELECT e.name FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE c.period='2026-04' AND c.month_sick_days > 20 ORDER BY e.name"}
+{"id": "q12", "kind": "过滤", "question": "4月累计病假超过50天的员工有哪几个？", "gold_sql": "SELECT e.name FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE c.period='2026-04' AND c.total_sick_days > 50 ORDER BY e.name"}
+{"id": "q13", "kind": "考勤", "question": "1月份的应出勤小时数是多少？", "gold_sql": "SELECT DISTINCT schedule_hours FROM attendance WHERE period='2026-01'"}
+{"id": "q14", "kind": "考勤", "question": "3月份每个人应出勤多少小时？", "gold_sql": "SELECT e.name, a.schedule_hours FROM attendance a JOIN employee e ON e.emp_id=a.emp_id WHERE a.period='2026-03' ORDER BY e.name"}
+{"id": "q15", "kind": "多表", "question": "工号10000005是谁？他4月扣了多少钱？", "gold_sql": "SELECT e.name, c.deduction FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE e.emp_id='10000005' AND c.period='2026-04'"}
+{"id": "q16", "kind": "参数", "question": "最低工资标准是多少？", "gold_sql": "SELECT value FROM policy_params WHERE name='min_wage'"}
+{"id": "q17", "kind": "参数", "question": "病假扣款用了哪几档比例？", "gold_sql": "SELECT name, value FROM policy_params WHERE name IN ('rate_low','rate_high') ORDER BY name"}
+{"id": "q18", "kind": "多表", "question": "把每个人的姓名和4月病假天数列出来", "gold_sql": "SELECT e.name, c.month_sick_days FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE c.period='2026-04' ORDER BY e.name"}
+{"id": "q19", "kind": "排序", "question": "4月扣款最少的是谁？扣了多少？", "gold_sql": "SELECT e.name, c.deduction FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE c.period='2026-04' ORDER BY c.deduction ASC LIMIT 1"}
+{"id": "q20", "kind": "边界", "question": "4月有没有人扣款是0？", "gold_sql": "SELECT e.name FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE c.period='2026-04' AND c.deduction = 0"}
