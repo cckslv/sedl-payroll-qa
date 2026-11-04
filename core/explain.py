@@ -11,6 +11,7 @@
 """
 import re
 import sqlite3
+from decimal import ROUND_HALF_UP, Decimal
 
 from .payroll import Policy, compute_deduction
 
@@ -105,12 +106,18 @@ def _branch_of(row: dict, policy: Policy):
 
 
 def _fmt(v: float) -> str:
-    """金额统一两位小数（千分位），不再去尾零免得 761.9 与 952.38 混排。"""
-    return f"{v:,.2f}"
+    """金额两位小数（千分位）。用 Decimal 四舍五入，与 payroll 口径一致。
+
+    不能用 f"{v:,.2f}"：那是二进制浮点 + 银行家舍入，2.675 会变成 2.67。
+    """
+    d = Decimal(repr(float(v))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return f"{d:,.2f}"
 
 
 def _fmt_short(v: float) -> str:
-    s = f"{v:,.2f}"
+    """天数类：整数不带小数位。"""
+    d = Decimal(repr(float(v))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    s = f"{d:,.2f}"
     return s[:-3] if s.endswith(".00") else s
 
 

@@ -18,3 +18,23 @@
 {"id": "q18", "kind": "多表", "question": "把每个人的姓名和4月病假天数列出来", "gold_sql": "SELECT e.name, c.month_sick_days FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE c.period='2026-04' ORDER BY e.name"}
 {"id": "q19", "kind": "排序", "question": "4月扣款最少的是谁？扣了多少？", "gold_sql": "SELECT e.name, c.deduction FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE c.period='2026-04' ORDER BY c.deduction ASC LIMIT 1"}
 {"id": "q20", "kind": "边界", "question": "4月有没有人扣款是0？", "gold_sql": "SELECT e.name FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE c.period='2026-04' AND c.deduction = 0"}
+{"id": "q21", "kind": "多条件", "question": "4月病假天数超过20天且实发低于3000的有谁？", "gold_sql": "SELECT e.name FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE c.period='2026-04' AND c.month_sick_days>20 AND c.net_pay<3000 ORDER BY e.name"}
+{"id": "q22", "kind": "多月", "question": "2月份的应出勤小时数是多少？", "gold_sql": "SELECT DISTINCT schedule_hours FROM attendance WHERE period='2026-02'"}
+{"id": "q23", "kind": "多月", "question": "哪个月应出勤小时数最多？", "gold_sql": "SELECT period FROM attendance GROUP BY period ORDER BY MAX(schedule_hours) DESC LIMIT 1"}
+{"id": "q24", "kind": "聚合", "question": "4月扣款超过2000元的有几个人？", "gold_sql": "SELECT COUNT(*) FROM calc_reference WHERE period='2026-04' AND deduction>2000"}
+{"id": "q25", "kind": "排序", "question": "4月实发工资第二高的是谁？", "gold_sql": "SELECT e.name FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE c.period='2026-04' ORDER BY c.net_pay DESC LIMIT 1 OFFSET 1"}
+{"id": "q26", "kind": "边界", "question": "4月有没有人扣款超过5000元？", "gold_sql": "SELECT e.name FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE c.period='2026-04' AND c.deduction>5000"}
+{"id": "q27", "kind": "参数", "question": "一个月按多少天计薪？", "gold_sql": "SELECT value FROM policy_params WHERE name='workdays_per_month'"}
+{"id": "q28", "kind": "单值", "question": "工号10000003的员工叫什么名字？", "gold_sql": "SELECT name FROM employee WHERE emp_id='10000003'"}
+{"id": "q29", "kind": "参数", "question": "政策参数里值小于1的有哪些？", "gold_sql": "SELECT name, value FROM policy_params WHERE value<1 ORDER BY name"}
+{"id": "q30", "kind": "过滤", "question": "4月实发工资正好是2510的有谁？", "gold_sql": "SELECT e.name FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE c.period='2026-04' AND c.net_pay=2510 ORDER BY e.name"}
+{"id": "q31", "kind": "多表", "question": "列出每个人的姓名和累计病假天数，按累计从高到低排", "gold_sql": "SELECT e.name, c.total_sick_days FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE c.period='2026-04' ORDER BY c.total_sick_days DESC"}
+{"id": "q32", "kind": "多月", "question": "1月和3月的应出勤小时数分别是多少？", "gold_sql": "SELECT period, schedule_hours FROM attendance WHERE period IN ('2026-01','2026-03') GROUP BY period ORDER BY period"}
+{"id": "q33", "kind": "聚合", "question": "4月病假天数最多的人有几个？", "gold_sql": "SELECT COUNT(*) FROM calc_reference WHERE period='2026-04' AND month_sick_days=(SELECT MAX(month_sick_days) FROM calc_reference WHERE period='2026-04')"}
+{"id": "q34", "kind": "单值", "question": "谁的月薪最高？", "gold_sql": "SELECT e.name FROM salary_month s JOIN employee e ON e.emp_id=s.emp_id WHERE s.period='2026-04' ORDER BY s.basic_salary DESC LIMIT 1"}
+{"id": "q35", "kind": "过滤", "question": "4月基本工资超过1万的有谁？", "gold_sql": "SELECT e.name FROM salary_month s JOIN employee e ON e.emp_id=s.emp_id WHERE s.period='2026-04' AND s.basic_salary>10000 ORDER BY e.name"}
+{"id": "q36", "kind": "聚合", "question": "4月的平均实发工资是多少？", "gold_sql": "SELECT AVG(net_pay) FROM calc_reference WHERE period='2026-04'"}
+{"id": "q37", "kind": "聚合", "question": "4月实发低于3000的有几位？", "gold_sql": "SELECT COUNT(*) FROM calc_reference WHERE period='2026-04' AND net_pay<3000"}
+{"id": "q38", "kind": "单值", "question": "工号10000007的月薪是多少？", "gold_sql": "SELECT basic_salary FROM salary_month WHERE emp_id='10000007' AND period='2026-04'"}
+{"id": "q39", "kind": "参数", "question": "列出所有政策参数的名称和值", "gold_sql": "SELECT name, value FROM policy_params ORDER BY name"}
+{"id": "q40", "kind": "边界", "question": "4月有没有人病假扣款是0元？", "gold_sql": "SELECT e.name FROM calc_reference c JOIN employee e ON e.emp_id=c.emp_id WHERE c.period='2026-04' AND c.deduction=0"}
