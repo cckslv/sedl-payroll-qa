@@ -78,25 +78,33 @@ def compute_deduction(
 
     AB, X, U = cum_total_days, prev_cum_days, month_sick_days
     th = p.full_month_sick_threshold
+    long_days = p.long_sick_days          # 5：长病假起算天数
+    paid_days = p.paid_sick_days          # 1：免扣天数
+    gap = th - X
 
     if AB > th and X >= th:
         branch = "A"
         raw = (basic_salary - p.min_wage) / workdays * U
-    elif AB > th and X <= th and (th - X) >= 6:
+    elif AB > th and X <= th and gap >= long_days + 1:
+        # 相差 ≥ 6 天 → 分段：前段 25%，超长部分 50%
         branch = "B"
         raw = ((basic_salary - p.min_wage) / workdays * (AB - th)
-               + daily * 4 * p.rate_low
-               + daily * (th - X - 5) * p.rate_high)
-    elif AB > th and X <= th and 1 <= (th - X) <= 5:
+               + daily * (long_days - 1) * p.rate_low
+               + daily * (gap - long_days) * p.rate_high)
+    elif AB > th and X <= th and 0 < gap < long_days + 1:
+        # 客户的 Excel 是 IF(...,6>(22-X)>1,...)。Excel 不做链式比较，
+        # 实际按 (6>(22-X))>1 求值，即「相差 < 6 天」，不是「1~5 天」。
+        # 这里按公式的实际行为实现，保证与客户 Excel / 说明文档一致。
         branch = "C"
         raw = ((basic_salary - p.min_wage) / workdays * (AB - th)
-               + daily * (21 - X) * p.rate_low)
-    elif AB <= th and U > 5:
+               + daily * (th - 1 - X) * p.rate_low)
+    elif AB <= th and U > long_days:
         branch = "D"
-        raw = daily * 4 * p.rate_low + daily * (U - 5) * p.rate_high
-    elif AB <= th and U > 1:
+        raw = (daily * (long_days - 1) * p.rate_low
+               + daily * (U - long_days) * p.rate_high)
+    elif AB <= th and U > paid_days:
         branch = "E"
-        raw = daily * (U - 1) * p.rate_low
+        raw = daily * (U - paid_days) * p.rate_low
     else:
         branch = "F"
         raw = 0.0

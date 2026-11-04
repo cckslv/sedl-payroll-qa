@@ -129,3 +129,35 @@ def test_against_official_excel_reference():
                 f"{eid} {name}: 计算 {r.deduction}/{r.net_pay} "
                 f"vs Excel {exp_ded}/{exp_net} (分支 {r.branch})")
     assert not mismatches, "与官方结果不一致：\n" + "\n".join(mismatches)
+
+# ---------- C 分支边界：跟随客户公式的实际行为 ----------
+# 客户 Excel 写的是 IF(...,6>(22-X)>1,...)，Excel 按 (6>(22-X))>1 求值，
+# 即「相差 < 6 天」。以下三条钉住半天的口径，防止有人"修正"成 1~5。
+
+def test_c_boundary_exact_six_days_goes_B():
+    r = compute_deduction(basic_salary=3000, schedule_hours=168,
+                          prev_cum_days=16, cum_total_days=30, month_sick_days=10)
+    assert r.branch == "B"
+    assert r.deduction == 401.0
+
+
+def test_c_boundary_half_day_five_and_half_days():
+    """X=16.5（相差 5.5 天）必须走 C，按公式扣 347；旧实现会落到 F 扣 0"""
+    r = compute_deduction(basic_salary=3000, schedule_hours=168,
+                          prev_cum_days=16.5, cum_total_days=30, month_sick_days=10)
+    assert r.branch == "C"
+    assert r.deduction == 347.0
+
+
+def test_c_boundary_half_day_half_a_day():
+    r = compute_deduction(basic_salary=3000, schedule_hours=168,
+                          prev_cum_days=21.5, cum_total_days=30, month_sick_days=10)
+    assert r.branch == "C"
+    assert r.deduction == 169.0
+
+
+def test_c_boundary_five_days():
+    r = compute_deduction(basic_salary=3000, schedule_hours=168,
+                          prev_cum_days=17, cum_total_days=30, month_sick_days=10)
+    assert r.branch == "C"
+    assert r.deduction == 330.0
